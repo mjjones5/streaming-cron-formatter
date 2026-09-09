@@ -53,12 +53,19 @@ a warning printed to stderr and a nonzero exit code at the end of the run.
 - Ranges and step values (`mon-fri`, `*/15`, `0-6/2`) keep their structure
   but get the same whitespace and case treatment as plain fields.
 
+Each field is also checked against the legal range for its position:
+minute 0-59, hour 0-23, day-of-month 1-31, month 1-12 (or `Jan`-`Dec`),
+and day-of-week 0-7 (or `Sun`-`Sat`). A value out of range, a name used
+in the wrong field (`Mon` in the month position), an unknown name, or a
+step that isn't a positive integer is reported as an error on stderr and
+the offending line is passed through unchanged so nothing is silently
+dropped.
+
 ## What it does not do (yet)
 
-It does not validate that field values fall within a legal range for
-their position, and it only understands the standard 5-field form
-(minute hour day-of-month month day-of-week), not the 6-field form with
-seconds. See the roadmap in the project notes for what's planned next.
+It only understands the standard 5-field form (minute hour day-of-month
+month day-of-week), not the 6-field form with seconds. See the roadmap
+in the project notes for what's planned next.
 
 ## License
 
