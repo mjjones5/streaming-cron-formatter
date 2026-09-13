@@ -2,6 +2,7 @@ use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FieldKind {
+    Second,
     Minute,
     Hour,
     DayOfMonth,
@@ -9,7 +10,16 @@ enum FieldKind {
     DayOfWeek,
 }
 
-const SCHEDULE_FIELDS: [FieldKind; 5] = [
+const FIVE_FIELD_SCHEDULE: [FieldKind; 5] = [
+    FieldKind::Minute,
+    FieldKind::Hour,
+    FieldKind::DayOfMonth,
+    FieldKind::Month,
+    FieldKind::DayOfWeek,
+];
+
+const SIX_FIELD_SCHEDULE: [FieldKind; 6] = [
+    FieldKind::Second,
     FieldKind::Minute,
     FieldKind::Hour,
     FieldKind::DayOfMonth,
@@ -20,6 +30,7 @@ const SCHEDULE_FIELDS: [FieldKind; 5] = [
 impl FieldKind {
     fn label(self) -> &'static str {
         match self {
+            FieldKind::Second => "second",
             FieldKind::Minute => "minute",
             FieldKind::Hour => "hour",
             FieldKind::DayOfMonth => "day-of-month",
@@ -30,6 +41,7 @@ impl FieldKind {
 
     fn range(self) -> (i64, i64) {
         match self {
+            FieldKind::Second => (0, 59),
             FieldKind::Minute => (0, 59),
             FieldKind::Hour => (0, 23),
             FieldKind::DayOfMonth => (1, 31),
@@ -102,9 +114,16 @@ impl fmt::Display for NormalizeError {
     }
 }
 
-/// Normalizes a single crontab-style line: minute hour day month weekday,
-/// optionally followed by a command. Blank lines and comment lines are
-/// returned trimmed but otherwise untouched.
+/// Normalizes a single crontab-style line, optionally followed by a
+/// command. Blank lines and comment lines are returned trimmed but
+/// otherwise untouched.
+///
+/// Standard crontabs use 5 schedule fields (minute hour day month
+/// weekday). Some cron variants add a leading seconds field, making 6.
+/// There's no marker in the line itself that says which form is meant, so
+/// when there are at least 6 tokens we try the 6-field reading first and
+/// fall back to the 5-field reading if that doesn't parse as a valid
+/// schedule.
 pub fn normalize_line(line: &str) -> Result<String, NormalizeError> {
     let trimmed = line.trim();
 
@@ -112,19 +131,29 @@ pub fn normalize_line(line: &str) -> Result<String, NormalizeError> {
         return Ok(trimmed.to_string());
     }
 
-    let mut tokens = trimmed.split_whitespace();
-    let schedule: Vec<&str> = tokens.by_ref().take(5).collect();
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
 
-    if schedule.len() < 5 {
-        return Err(NormalizeError::TooFewFields {
-            found: schedule.len(),
-        });
+    if tokens.len() >= SIX_FIELD_SCHEDULE.len() {
+        if let Ok(normalized) = normalize_with_schedule(&tokens, &SIX_FIELD_SCHEDULE) {
+            return Ok(normalized);
+        }
     }
 
-    let command: Vec<&str> = tokens.collect();
+    normalize_with_schedule(&tokens, &FIVE_FIELD_SCHEDULE)
+}
+
+fn normalize_with_schedule(
+    tokens: &[&str],
+    fields: &[FieldKind],
+) -> Result<String, NormalizeError> {
+    if tokens.len() < fields.len() {
+        return Err(NormalizeError::TooFewFields { found: tokens.len() });
+    }
+
+    let (schedule, command) = tokens.split_at(fields.len());
     let normalized_schedule: Vec<String> = schedule
         .iter()
-        .zip(SCHEDULE_FIELDS)
+        .zip(fields.iter().copied())
         .map(|(f, kind)| normalize_field(f, kind))
         .collect::<Result<_, _>>()?;
 
@@ -335,6 +364,45 @@ mod tests {
         assert!(matches!(
             normalize_line("*/0 * * * *"),
             Err(NormalizeError::InvalidStep { field: "minute", .. })
+        ));
+    }
+
+    #[test]
+    fn normalizes_six_field_form_with_seconds() {
+        assert_eq!(
+            normalize_line("*/30 0 12 1 1 * backup").unwrap(),
+            "*/30 0 12 1 1 * backup"
+        );
+        assert_eq!(
+            normalize_line("59 59 23 31 DEC sat run").unwrap(),
+            "59 59 23 31 Dec Sat run"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_five_field_form_when_six_field_reading_is_invalid() {
+        // The seconds slot would put "31" in the hour position (max 23),
+        // so this can only be a valid schedule as five fields plus a command.
+        assert_eq!(
+            normalize_line("0 23 31 12 7 run").unwrap(),
+            "0 23 31 12 7 run"
+        );
+    }
+
+    #[test]
+    fn reports_five_field_error_when_neither_reading_is_valid() {
+        // Six tokens that are invalid both as a 6-field schedule and as a
+        // 5-field schedule plus command: the error that surfaces is from
+        // the 5-field fallback, since that's the reading that's checked
+        // last.
+        assert!(matches!(
+            normalize_line("60 60 60 60 60 60"),
+            Err(NormalizeError::OutOfRange {
+                field: "minute",
+                lo: 0,
+                hi: 59,
+                ..
+            })
         ));
     }
 

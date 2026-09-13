@@ -54,18 +54,24 @@ a warning printed to stderr and a nonzero exit code at the end of the run.
   but get the same whitespace and case treatment as plain fields.
 
 Each field is also checked against the legal range for its position:
-minute 0-59, hour 0-23, day-of-month 1-31, month 1-12 (or `Jan`-`Dec`),
-and day-of-week 0-7 (or `Sun`-`Sat`). A value out of range, a name used
-in the wrong field (`Mon` in the month position), an unknown name, or a
-step that isn't a positive integer is reported as an error on stderr and
-the offending line is passed through unchanged so nothing is silently
-dropped.
+second 0-59, minute 0-59, hour 0-23, day-of-month 1-31, month 1-12 (or
+`Jan`-`Dec`), and day-of-week 0-7 (or `Sun`-`Sat`). A value out of range,
+a name used in the wrong field (`Mon` in the month position), an unknown
+name, or a step that isn't a positive integer is reported as an error on
+stderr and the offending line is passed through unchanged so nothing is
+silently dropped.
 
-## What it does not do (yet)
+## Field counts
 
-It only understands the standard 5-field form (minute hour day-of-month
-month day-of-week), not the 6-field form with seconds. See the roadmap
-in the project notes for what's planned next.
+The standard form is 5 fields: minute hour day-of-month month
+day-of-week. Some cron variants add a leading seconds field, making 6.
+A line has no marker saying which form it uses, so when it has 6 or more
+tokens, `cronfmt` first tries reading the first 6 as a schedule with
+seconds; if that doesn't check out (a value out of an allowed range, an
+unknown name, and so on) it falls back to the standard 5-field reading.
+This means a 5-field line whose command happens to look like a valid
+6th schedule field can be misread as having seconds - rare in practice,
+but worth knowing about.
 
 ## License
 
