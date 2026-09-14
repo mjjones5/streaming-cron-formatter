@@ -44,6 +44,19 @@ Output:
 Lines with fewer than 5 schedule fields are passed through unchanged, with
 a warning printed to stderr and a nonzero exit code at the end of the run.
 
+## Check mode
+
+```
+cargo run -- --check crontab.txt
+```
+
+`--check` reports whether a file is already in canonical form instead of
+printing the rewritten lines. It writes nothing to stdout; for each line
+that would change it prints `line N would be reformatted` to stderr, and
+the process exits nonzero if any line needed reformatting or failed to
+parse. This is meant for CI: run it against a crontab and fail the build
+if someone committed an unnormalized schedule.
+
 ## What it normalizes
 
 - Runs of spaces or tabs between fields collapse to a single space.
