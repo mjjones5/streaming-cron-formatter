@@ -27,6 +27,20 @@ const SIX_FIELD_SCHEDULE: [FieldKind; 6] = [
     FieldKind::DayOfWeek,
 ];
 
+// @midnight is a longstanding Vixie cron alias for @daily; both are kept
+// as distinct entries rather than collapsed, since collapsing would change
+// what the line says even though it wouldn't change what it does.
+const SPECIAL_STRINGS: [&str; 8] = [
+    "@reboot",
+    "@yearly",
+    "@annually",
+    "@monthly",
+    "@weekly",
+    "@daily",
+    "@midnight",
+    "@hourly",
+];
+
 impl FieldKind {
     fn label(self) -> &'static str {
         match self {
@@ -85,6 +99,9 @@ pub enum NormalizeError {
         field: &'static str,
         value: String,
     },
+    UnknownSpecialString {
+        value: String,
+    },
 }
 
 impl fmt::Display for NormalizeError {
@@ -110,6 +127,9 @@ impl fmt::Display for NormalizeError {
             NormalizeError::InvalidStep { field, value } => {
                 write!(f, "{field} field: step '{value}' must be a positive integer")
             }
+            NormalizeError::UnknownSpecialString { value } => {
+                write!(f, "'{value}' is not a recognized @-schedule")
+            }
         }
     }
 }
@@ -124,6 +144,10 @@ impl fmt::Display for NormalizeError {
 /// when there are at least 6 tokens we try the 6-field reading first and
 /// fall back to the 5-field reading if that doesn't parse as a valid
 /// schedule.
+///
+/// A schedule can also be one of the `@reboot`/`@daily`/... shorthand
+/// strings in place of the field list. Those are recognized by the leading
+/// `@` and normalized on their own, without going through field parsing.
 pub fn normalize_line(line: &str) -> Result<String, NormalizeError> {
     let trimmed = line.trim();
 
@@ -133,6 +157,10 @@ pub fn normalize_line(line: &str) -> Result<String, NormalizeError> {
 
     let tokens: Vec<&str> = trimmed.split_whitespace().collect();
 
+    if tokens[0].starts_with('@') {
+        return normalize_special(&tokens);
+    }
+
     if tokens.len() >= SIX_FIELD_SCHEDULE.len() {
         if let Ok(normalized) = normalize_with_schedule(&tokens, &SIX_FIELD_SCHEDULE) {
             return Ok(normalized);
@@ -140,6 +168,27 @@ pub fn normalize_line(line: &str) -> Result<String, NormalizeError> {
     }
 
     normalize_with_schedule(&tokens, &FIVE_FIELD_SCHEDULE)
+}
+
+// The keyword's case gets folded the same way a named month or weekday
+// does, so "@Reboot" and "@REBOOT" both come out as "@reboot".
+fn normalize_special(tokens: &[&str]) -> Result<String, NormalizeError> {
+    let keyword = tokens[0];
+    let lower = keyword.to_ascii_lowercase();
+
+    let canonical = SPECIAL_STRINGS
+        .iter()
+        .find(|s| **s == lower)
+        .ok_or_else(|| NormalizeError::UnknownSpecialString {
+            value: keyword.to_string(),
+        })?;
+
+    let command = &tokens[1..];
+    if command.is_empty() {
+        Ok(canonical.to_string())
+    } else {
+        Ok(format!("{canonical} {}", command.join(" ")))
+    }
 }
 
 fn normalize_with_schedule(
@@ -403,6 +452,33 @@ mod tests {
                 hi: 59,
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn normalizes_special_string_case() {
+        assert_eq!(normalize_line("@Reboot").unwrap(), "@reboot");
+        assert_eq!(normalize_line("@DAILY").unwrap(), "@daily");
+    }
+
+    #[test]
+    fn keeps_special_string_command_untouched() {
+        assert_eq!(
+            normalize_line("@hourly   /usr/bin/backup.sh").unwrap(),
+            "@hourly /usr/bin/backup.sh"
+        );
+    }
+
+    #[test]
+    fn keeps_midnight_distinct_from_daily() {
+        assert_eq!(normalize_line("@midnight run").unwrap(), "@midnight run");
+    }
+
+    #[test]
+    fn rejects_unknown_special_string() {
+        assert!(matches!(
+            normalize_line("@fortnightly run"),
+            Err(NormalizeError::UnknownSpecialString { value }) if value == "@fortnightly"
         ));
     }
 

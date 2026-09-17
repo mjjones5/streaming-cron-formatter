@@ -74,6 +74,19 @@ name, or a step that isn't a positive integer is reported as an error on
 stderr and the offending line is passed through unchanged so nothing is
 silently dropped.
 
+## Special strings
+
+A schedule can be one of the `@`-prefixed shorthands instead of a field
+list: `@reboot`, `@yearly`, `@annually`, `@monthly`, `@weekly`, `@daily`,
+`@midnight`, or `@hourly`. These are recognized by their leading `@` and
+normalized to lowercase (`@REBOOT` becomes `@reboot`); the rest of the
+line, if any, is treated as the command and left alone. `@annually` and
+`@yearly` mean the same thing, as do `@midnight` and `@daily`, but each
+keeps its own spelling rather than being folded into the other - the goal
+is consistent casing, not rewriting which alias someone chose. An
+unrecognized `@word` is reported as an error and passed through unchanged,
+the same as an invalid field.
+
 ## Field counts
 
 The standard form is 5 fields: minute hour day-of-month month
